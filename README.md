@@ -1,0 +1,61 @@
+# dsh-message-datetime
+
+每个对话 turn 开始时，向模型上下文注入一条**简短时间戳**的 dsh 插件（DeepSeek Harness / cordis plugin）。
+
+模型由此始终知道"现在几点、今天星期几"——日期运算、"今天/明天"语义、yymmdd 路径命名等不再需要询问用户或猜测。
+
+## 模型看到什么
+
+每个 turn 的第一个 step，在用户消息之后追加一条单行通知（约 30 token，append-only 不破坏 KV cache）：
+
+```
+Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)
+```
+
+GUI 中渲染为折叠的 context chip（非用户气泡），折叠行显示去掉秒的摘要，点击展开完整文本。
+
+## 行为规则
+
+- **每 turn 恰好一条**：仅 `step === 1` 注入；turn 内后续 step（工具调用续步）不重复。
+- **覆盖所有会话**：用户 turn、goal 自动续跑 round、subagent turn 均注入（subagent 无浏览器上下文，最需要时钟）。
+- **时区解析链**：本 turn 浏览器上报时区（`clientTimeZone`，唯一时才采用）→ 配置的 `timeZone` 回退 → Node 进程时区。无效值静默回退，绝不打断 turn。
+- **replay 安全**：注入是 step 窗口内的 `user/message`（plugin-attributed notice），满足 token-meter replay 约束；机制与官方 `@deepseek-ai/dsh-time-context` 同源。
+
+## 配置
+
+```yaml
+- id: message-datetime
+  name: dsh-message-datetime
+  config:
+    timeZone: Asia/Shanghai   # 可选：浏览器时区不可用时的回退显示时区（默认进程时区）
+```
+
+## 与官方 dsh-time-context 的区别
+
+| 维度 | @deepseek-ai/dsh-time-context | dsh-message-datetime |
+|------|-------------------------------|----------------------|
+| 注入频率 | 每个 eligible step | 每 turn 一次 |
+| 单条体量 | 三行（时间 + 时区政策 + elapsed） | 单行 |
+| 定位 | 严格时区政策解释（Schedule 场景，opt-in） | 轻量时钟感知（常驻） |
+
+两者不建议同时启用（会双重时间注入）。
+
+## 安装（本机 profile）
+
+```bash
+# /root/.dsh/profiles/web/package.json:
+#   dsh.profile.bundles 数组加 "dsh-message-datetime"
+#   dependencies 加 "dsh-message-datetime": "link:/root/projects/dsh-message-datetime"
+cd /root/.dsh/profiles/web && pnpm install
+```
+
+## 开发
+
+```bash
+npm install
+npm run build     # tsc → dist/src
+npm test          # tsc(含 test) + node --test dist/test/*.test.js
+```
+
+- 参考实现：`@deepseek-ai/dsh-time-context`（/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-time-context）
+- 依赖必须显式声明在 `dependencies` 并本地安装（link 包 ESM 解析坑，见 dev-dsh-plugin 技能）
