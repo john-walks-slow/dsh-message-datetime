@@ -125,13 +125,13 @@ test("apply registers one prepended agent/pre-step listener whose handler inject
 		logger: { warn: () => {} }
 	};
 	apply(fakeCtx as never);
-	assert.equal(registrations.length, 1);
+	assert.equal(registrations.length, 2);
 	assert.equal(registrations[0].event, "agent/pre-step");
 	assert.deepEqual(registrations[0].options, { prepend: true });
 	const userMessage = plainUserMessage();
-	const handler = registrations[0].handler as (payload: { messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => Promise<PreStepDecision>;
+	const handler = registrations[0].handler as (payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>) => Promise<PreStepDecision>;
 	const decision = await handler(
-		{ messages: [userMessage], turn: 3, step: 1, signal: new AbortController().signal },
+		{ agent: {} as Agent, messages: [userMessage], turn: 3, step: 1, signal: new AbortController().signal },
 		async () => ({ kind: "enter", messages: [userMessage] })
 	);
 	assert.equal(decision.kind, "enter");

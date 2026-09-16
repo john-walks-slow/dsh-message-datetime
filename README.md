@@ -1,8 +1,8 @@
 # dsh-message-datetime
 
-每个对话 turn 开始时，向模型上下文注入一条**简短时间戳**的 dsh 插件（DeepSeek Harness / cordis plugin）。
+每个对话 turn 开始与结束时，向模型上下文注入**简短时间戳**的 dsh 插件（DeepSeek Harness / cordis plugin）。
 
-模型由此始终知道"现在几点、今天星期几"——日期运算、"今天/明天"语义、yymmdd 路径命名等不再需要询问用户或猜测。
+模型由此始终知道"现在几点、今天星期几、上一轮何时结束"——日期运算、"今天/明天"语义、跨轮空闲间隔感知、yymmdd 路径命名等不再需要询问用户或猜测。
 
 ## 模型看到什么
 
@@ -12,14 +12,23 @@
 Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)
 ```
 
-GUI 中渲染为折叠的 context chip（非用户气泡），折叠行显示去掉秒的摘要，点击展开完整文本。
+turn 正常收尾时（`agent/turn-stopping` 边界，最后一条 step/end 之后、turn/end 之前），再追加一条单行关闭读数：
+
+```
+Turn ended: Tue 2026-09-15 01:41:20 +08:00 (Asia/Shanghai)
+```
+
+下一轮模型由此直接读到上一轮的结束时间。两条通知在 GUI 中均渲染为折叠的 context chip（非用户气泡），折叠行显示去掉秒的摘要，点击展开完整文本。
 
 ## 行为规则
 
-- **每 turn 恰好一条**：仅 `step === 1` 注入；turn 内后续 step（工具调用续步）不重复。
+- **每 turn 恰两条**：仅 `step === 1` 注入开场读数；turn 内后续 step（工具调用续步）不重复。turn 正常结束时注入关闭读数。
+- **中断轮无关闭读数**：abort / error / 空输入等路径不会派发 `agent/turn-stopping`，被打断的轮次只有 `turn/end` 事件记录原因，无通知。
+- **关闭读数绝不打断收尾**：turn-stopping 是 serial 派发，监听器任何失败只 warn 降级，绝不抛出（抛错会把本轮 `turn/end` reason 污染为 error）。
+- **时区一致**：关闭读数复用本 turn 开场读数选定的时区（无开场读数则回退配置时区），两条读数时区永远一致。
 - **覆盖所有会话**：用户 turn、goal 自动续跑 round、subagent turn 均注入（subagent 无浏览器上下文，最需要时钟）。
 - **时区解析链**：本 turn 浏览器上报时区（`clientTimeZone`，唯一时才采用）→ 配置的 `timeZone` 回退 → Node 进程时区。无效值静默回退，绝不打断 turn。
-- **replay 安全**：注入是 step 窗口内的 `user/message`（plugin-attributed notice），满足 token-meter replay 约束；机制与官方 `@deepseek-ai/dsh-time-context` 同源。
+- **replay 安全**：两条读数均为 `user/message`（plugin-attributed notice）——开场读数在 step 窗口内，关闭读数在 `turn/end` 之前的轮间位置（dsh-session invariant 对 `user/message` 无位置约束），满足 token-meter replay 约束；机制与官方 `@deepseek-ai/dsh-time-context` 同源。
 
 ## 配置
 
@@ -34,9 +43,9 @@ GUI 中渲染为折叠的 context chip（非用户气泡），折叠行显示去
 
 | 维度 | @deepseek-ai/dsh-time-context | dsh-message-datetime |
 |------|-------------------------------|----------------------|
-| 注入频率 | 每个 eligible step | 每 turn 一次 |
+| 注入频率 | 每个 eligible step | 每 turn 两条（开场 + 收尾） |
 | 单条体量 | 三行（时间 + 时区政策 + elapsed） | 单行 |
-| 定位 | 严格时区政策解释（Schedule 场景，opt-in） | 轻量时钟感知（常驻） |
+| 定位 | 严格时区政策解释（Schedule 场景，opt-in） | 轻量时钟感知 + 跨轮间隔感知（常驻） |
 
 两者不建议同时启用（会双重时间注入）。
 

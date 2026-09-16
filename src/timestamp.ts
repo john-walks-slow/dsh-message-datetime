@@ -6,6 +6,11 @@
  * so a collapsed GUI notice row stays short; the reading keeps them.
  */
 
+/** The label of a reading taken while the turn is running. */
+const CURRENT_TIME_LABEL = "Current time:";
+/** The label of a reading taken as the turn closes. */
+const TURN_ENDED_LABEL = "Turn ended:";
+
 /** The per-zone formatting pair behind durable clock readings. */
 export interface TimestampFormatter {
 	/** Canonical IANA zone the readings display. */
@@ -14,6 +19,10 @@ export interface TimestampFormatter {
 	formatReading(now: number): string;
 	/** One-line GUI summary without seconds, e.g. `Current time: Tue 2026-09-15 01:04 +08:00`. */
 	formatSummary(now: number): string;
+	/** Full model-facing reading of the turn's end, e.g. `Turn ended: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)`. */
+	formatEndedReading(now: number): string;
+	/** One-line GUI summary of the turn's end without seconds, e.g. `Turn ended: Tue 2026-09-15 01:04 +08:00`. */
+	formatEndedSummary(now: number): string;
 }
 
 /**
@@ -34,15 +43,17 @@ export function createTimestampFormatter(zone?: string): TimestampFormatter {
 		timeZoneName: "longOffset"
 	});
 	const canonicalZone = formatter.resolvedOptions().timeZone;
-	const render = (now: number, withSeconds: boolean): string => {
+	const render = (now: number, label: string, withSeconds: boolean): string => {
 		const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
 		const offset = parts.timeZoneName.replace(/^GMT$/, "GMT+00:00").slice(3);
 		const time = withSeconds ? `${parts.hour}:${parts.minute}:${parts.second}` : `${parts.hour}:${parts.minute}`;
-		return `Current time: ${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${time} ${offset} (${canonicalZone})`;
+		return `${label} ${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${time} ${offset} (${canonicalZone})`;
 	};
 	return {
 		zone: canonicalZone,
-		formatReading: (now) => render(now, true),
-		formatSummary: (now) => render(now, false)
+		formatReading: (now) => render(now, CURRENT_TIME_LABEL, true),
+		formatSummary: (now) => render(now, CURRENT_TIME_LABEL, false),
+		formatEndedReading: (now) => render(now, TURN_ENDED_LABEL, true),
+		formatEndedSummary: (now) => render(now, TURN_ENDED_LABEL, false)
 	};
 }

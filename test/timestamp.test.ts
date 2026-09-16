@@ -12,6 +12,12 @@ test("reading renders weekday, date, seconds, offset, and zone for Asia/Shanghai
 	assert.equal(formatter.formatSummary(TUE_MORNING_UTC), "Current time: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai)");
 });
 
+test("turn-end readings reuse the same timestamp shape under the Turn ended label", () => {
+	const formatter = createTimestampFormatter("Asia/Shanghai");
+	assert.equal(formatter.formatEndedReading(TUE_MORNING_UTC), "Turn ended: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)");
+	assert.equal(formatter.formatEndedSummary(TUE_MORNING_UTC), "Turn ended: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai)");
+});
+
 test("UTC renders +00:00 rather than a bare GMT marker", () => {
 	const formatter = createTimestampFormatter("UTC");
 	assert.equal(formatter.zone, "UTC");
