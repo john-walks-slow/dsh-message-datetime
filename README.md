@@ -1,5 +1,7 @@
 # dsh-message-datetime
 
+Per-turn clock context for DeepSeek Harness: the model receives a one-line `Current time` reading at every turn start and a `Turn ended` reading at turn close.
+
 每个对话 turn 开始与结束时，向模型上下文注入**简短时间戳**的 dsh 插件（DeepSeek Harness / cordis plugin）。
 
 模型由此始终知道"现在几点、今天星期几、上一轮何时结束"——日期运算、"今天/明天"语义、跨轮空闲间隔感知、yymmdd 路径命名等不再需要询问用户或猜测。
@@ -18,7 +20,9 @@ turn 正常收尾时（`agent/turn-stopping` 边界，最后一条 step/end 之�
 Turn ended: Tue 2026-09-15 01:41:20 +08:00 (Asia/Shanghai)
 ```
 
-下一轮模型由此直接读到上一轮的结束时间。两条通知在 GUI 中均渲染为折叠的 context chip（非用户气泡），折叠行显示去掉秒的摘要，点击展开完整文本。
+下一轮模型由此直接读到上一轮的结束时间。通知以 plugin-attributed notice 进入会话流，GUI 中渲染为折叠的 context chip（非用户气泡）——收尾读数显示为 `Context injection · dsh-message-datetime · Turn ended: …`，点击展开完整文本；开场读数可在 Trajectory 视图查看。
+
+![dsh-message-datetime in the DSH web UI: a Turn ended context injection chip below the assistant reply](assets/screenshot-1.png)
 
 ## 行为规则
 
