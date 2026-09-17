@@ -49,22 +49,37 @@ Turn ended: Tue 2026-09-15 01:41:20 +08:00 (Asia/Shanghai)
 
 两者不建议同时启用（会双重时间注入）。
 
-## 安装（本机 profile）
+## 安装
 
 ```bash
-# /root/.dsh/profiles/web/package.json:
-#   dsh.profile.bundles 数组加 "dsh-message-datetime"
-#   dependencies 加 "dsh-message-datetime": "link:/root/projects/dsh-message-datetime"
-cd /root/.dsh/profiles/web && pnpm install
+dsh plugin --profile web add dsh-message-datetime
 ```
 
-## 开发
+安装后无需手动改配置，插件自带的 `cordis.patch.yml` 自动挂载生效；`timeZone` 为可选回退项（见上文配置）。
+
+从 GitHub 直装（源码安装，pnpm ≥10 需允许构建脚本）：
+
+```bash
+dsh plugin --profile web add github:john-walks-slow/dsh-message-datetime
+# 首次 add 会被 pnpm 拦截：把 pnpm 提示的包名加入
+# ~/.dsh/profiles/web/pnpm-workspace.yaml 的 allowBuilds 后重跑
+```
+
+## 权限与兼容
+
+- **零权限**：无外部服务、无网络请求、无文件系统写入；仅向会话上下文追加两条 `user/message` 通知
+- **依赖**：`@deepseek-ai/cordis` 4.0.2 / `@deepseek-ai/dsh-llm` 0.1.2-rc.1（与 dsh 0.1.2-rc.1 锁定版本对齐），Node ≥ 22.5
+- **中断安全**：任何注入失败均降级为 warn，绝不打断 turn
+
+## 本地开发
 
 ```bash
 npm install
 npm run build     # tsc → dist/src
 npm test          # tsc(含 test) + node --test dist/test/*.test.js
 ```
+
+本机 profile 接线（link 方式）：`/root/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 数组加 `"dsh-message-datetime"`，`dependencies` 加 `"dsh-message-datetime": "link:/root/projects/dsh-message-datetime"`，然后 `pnpm install`。
 
 - 参考实现：`@deepseek-ai/dsh-time-context`（/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-time-context）
 - 依赖必须显式声明在 `dependencies` 并本地安装（link 包 ESM 解析坑，见 dev-dsh-plugin 技能）

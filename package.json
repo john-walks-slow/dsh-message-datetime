@@ -18,7 +18,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js"
+    "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm test"
   },
   "dsh": {
     "bundle": {
@@ -46,5 +48,14 @@
     "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
     "@types/node": "^22.20.1",
     "typescript": "^5.9.3"
+  },
+  "author": "johnnren",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/john-walks-slow/dsh-message-datetime.git"
+  },
+  "homepage": "https://github.com/john-walks-slow/dsh-message-datetime#readme",
+  "bugs": {
+    "url": "https://github.com/john-walks-slow/dsh-message-datetime/issues"
   }
 }
