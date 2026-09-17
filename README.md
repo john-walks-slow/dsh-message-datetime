@@ -1,6 +1,9 @@
 # dsh-message-datetime
 
-Per-turn clock context for DeepSeek Harness: the model receives a one-line `Current time` reading at every turn start and a `Turn ended` reading at turn close.
+<p align="center">
+  <a href="./README.md"><strong>简体中文</strong></a> ·
+  <a href="./README.en.md"><strong>English</strong></a>
+</p>
 
 每个对话 turn 开始与结束时，向模型上下文注入**简短时间戳**的 dsh 插件（DeepSeek Harness / cordis plugin）。
 
