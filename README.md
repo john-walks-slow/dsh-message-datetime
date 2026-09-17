@@ -90,3 +90,20 @@ npm test          # tsc(含 test) + node --test dist/test/*.test.js
 
 - 参考实现：`@deepseek-ai/dsh-time-context`（/usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-time-context）
 - 依赖必须显式声明在 `dependencies` 并本地安装（link 包 ESM 解析坑，见 dev-dsh-plugin 技能）
+
+## 发新版
+
+改动入库后一条命令完成测试、版本号、打包（`npm version` 会自动 commit 并打 tag）：
+
+```bash
+npm run release        # patch；较大更新改用：npm version minor 或 major
+```
+
+然后指纹发布并推送：
+
+```bash
+node ~/.agents/skills/npm-publish/scripts/publish-webauthn.cjs /tmp/dsh-message-datetime-<新版>.tgz
+git push --follow-tags
+```
+
+发布后 `npm view dsh-message-datetime version` 复验。批量发多个包时，在指纹页勾选“5 分钟内同 IP 不再挑战”，一次指纹即可连发。
