@@ -24,6 +24,13 @@ npm test                       # 28 用例（tsc 含 test + node --test）
 - 接入 profile：`/root/.dsh/profiles/web/package.json` 的 bundles + `link:` 依赖（已接线）；改完在 4176 端口隔离验证（见 /restart-dsh），线上重启需用户书面同意
 - 验证记录：`docs/features/260915-dsh-message-datetime/`（首版）、`docs/features/260916-turn-end-notice/`（关闭读数）
 
+## 发布
+
+- v0.1.0 已双渠道发布：npm `dsh-message-datetime` + GitHub `john-walks-slow/dsh-message-datetime`（topics: dsh-plugin / deepseek-harness / ai-agent，市场自动收录触发器已就位；npm 包 `repository` 字段回指仓库）
+- 发新版流程：bump version → `npm test` → `npm pack --pack-destination /tmp` → `node ~/.agents/skills/npm-publish/scripts/publish-webauthn.cjs /tmp/<tgz>` → 把打印的 AUTH_URL 交给用户指纹确认（约 5 分钟窗口）→ push GitHub
+- npm 账号 johnnren 已绑 passkey（npm 已下线 TOTP）；bypass-2FA token 直发 2027-01 移除，勿走 token 路线
+- awesome-dsh-plugin PR：仓库满 1 天（2026-09-18 起）后提 `data/plugins/john-walks-slow__dsh-message-datetime.yml`，description 属实不夸大（会被对着代码核）
+
 ## 规范
 
 - 依赖纪律（link 包 ESM 解析坑）：所有运行时 `import` 的 `@deepseek-ai/*` 必须显式声明在 `dependencies` 并本地 `npm install`；纯类型导入放 devDependencies。版本对齐 dsh 主包锁定值
