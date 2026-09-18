@@ -3,25 +3,18 @@
  *
  * Every turn's first step appends exactly one short durable reading of the
  * current time (weekday, date, time, UTC offset, IANA zone) as a
- * plugin-attributed notice, and the turn's `agent/turn-stopping` boundary
- * appends one closing reading of when the turn ended, so the model always
- * knows what "now" is and when the previous round finished — for date math,
- * "today" phrasing, idle-gap awareness, and dated artifact paths — without
- * asking.
+ * plugin-attributed notice. If a previous turn ended in this session, the
+ * reading seamlessly incorporates the previous turn's end time and idle duration,
+ * so the model always knows what "now" is and when the previous round finished —
+ * for date math, "today" phrasing, idle-gap awareness, and dated artifact paths —
+ * without asking, and without polluting turn endings or breaking the Web UI's
+ * turn branching (fork) capability.
  *
- * The opening reading rides the same mechanism as the official
- * dsh-time-context package: an `agent/pre-step` listener that delegates first
- * and appends its message to the admitted decision, which the agent loop
- * persists as `user/message` inside the open step window. The closing reading
- * instead appends directly to the session log at the `agent/turn-stopping`
- * boundary — after the last `step/end`, before `turn/end` — where a
- * `user/message` is invariant-legal. Later steps of a turn get no second
+ * The reading rides an `agent/pre-step` listener that delegates first and appends
+ * its message to the admitted decision, which the agent loop persists as
+ * `user/message` inside the open step window. Later steps of a turn get no second
  * reading; every reading is written once, append-only, so the request prefix
- * stays KV-cache reusable. Turns that close without a completed final step —
- * abort, error, rejection, or empty input — never reach `agent/turn-stopping`
- * and simply carry no closing reading. In the loop's rare dispatch-then-
- * withdraw race the closing reading may be followed by a queued next turn
- * within the same close; the duplicate reading is harmless presentation.
+ * stays KV-cache reusable.
  */
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent, PreStepDecision } from "@deepseek-ai/dsh-agent";
@@ -49,19 +42,6 @@ export interface Clock {
 	now(): number;
 }
 
-/** Remembers the display zone each agent's latest opening reading used, keyed by agent object. */
-export type ZoneMemory = WeakMap<object, string>;
-
-/** The minimal session surface a turn-end notice appends through. */
-export interface NoticeSession {
-	append(type: "user/message", data: UserMessage, options: { surfaceOp: "append" }): unknown;
-}
-
-/** The minimal runtime agent facade the turn-stopping listener needs. */
-export interface NoticeAgent {
-	session: NoticeSession;
-}
-
 /** Build one durable clock-reading notice in one display zone. */
 function readingNotice(formatReading: (now: number) => string, formatSummary: (now: number) => string, now: number): UserMessage {
 	return createUserMessage({
@@ -76,13 +56,43 @@ function readingNotice(formatReading: (now: number) => string, formatSummary: (n
 }
 
 /**
+ * Extract the previous completed turn's end timestamp from the agent session, if any.
+ */
+export function findLastTurnEnd(agent: Agent): number | undefined {
+	try {
+		const session = (agent as { session?: { snapshotEvents?: () => readonly { type: string; time?: number }[] } }).session;
+		if (typeof session?.snapshotEvents !== "function") return undefined;
+		const events = session.snapshotEvents();
+		for (let i = events.length - 1; i >= 0; i--) {
+			const event = events[i];
+			if (event?.type === "turn/end") {
+				return typeof event.time === "number" ? event.time : undefined;
+			}
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * Compose the clock reading for one proposed step.
  * @returns The notice message to append, or `undefined` when this step must not carry one.
  */
-export function composeReading(step: number, aborted: boolean, messages: readonly UserMessage[], clock: Clock): UserMessage | undefined {
+export function composeReading(
+	step: number,
+	aborted: boolean,
+	messages: readonly UserMessage[],
+	clock: Clock,
+	lastTurnEnd?: number
+): UserMessage | undefined {
 	if (aborted || step !== 1) return undefined;
 	const formatter = clock.formatterFor(selectRequestTimeZone(messages, clock.fallbackZone));
-	return readingNotice((now) => formatter.formatReading(now), (now) => formatter.formatSummary(now), clock.now());
+	return readingNotice(
+		(now) => formatter.formatReading(now, lastTurnEnd),
+		(now) => formatter.formatSummary(now, lastTurnEnd),
+		clock.now()
+	);
 }
 
 /**
@@ -91,10 +101,9 @@ export function composeReading(step: number, aborted: boolean, messages: readonl
  *
  * A reading is presentation, never a turn prerequisite: if composing it throws
  * for any reason, the error is reported through `onError` and the step
- * proceeds with the decision untouched. When a reading is composed, the
- * display zone it used is remembered for this agent's turn-end notice.
+ * proceeds with the decision untouched.
  */
-export function preStepHandler(clock: Clock, onError: (error: unknown) => void, zones: ZoneMemory = new WeakMap()) {
+export function preStepHandler(clock: Clock, onError: (error: unknown) => void) {
 	return async (
 		payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal },
 		next: () => Promise<PreStepDecision>
@@ -103,9 +112,9 @@ export function preStepHandler(clock: Clock, onError: (error: unknown) => void, 
 		if (decision.kind !== "enter") return decision;
 		let reading: UserMessage | undefined;
 		try {
-			reading = composeReading(payload.step, payload.signal.aborted, decision.messages, clock);
+			const lastTurnEnd = findLastTurnEnd(payload.agent);
+			reading = composeReading(payload.step, payload.signal.aborted, decision.messages, clock, lastTurnEnd);
 			if (reading === undefined) return decision;
-			zones.set(payload.agent, selectRequestTimeZone(decision.messages, clock.fallbackZone));
 		} catch (error) {
 			onError(error);
 			return decision;
@@ -115,30 +124,7 @@ export function preStepHandler(clock: Clock, onError: (error: unknown) => void, 
 }
 
 /**
- * Build the turn-stopping listener around one clock. Exposed for tests;
- * `apply` is the only production caller.
- *
- * The closing reading reuses the display zone of the agent's latest opening
- * reading, falling back to the configured zone when none was composed. It is
- * presentation as well: any failure is reported through `onError` and the
- * turn still closes with its own end reason, because a throwing serial
- * listener would corrupt `turn/end`.
- */
-export function turnStoppingHandler(clock: Clock, onError: (error: unknown) => void, zones: ZoneMemory = new WeakMap()) {
-	return async (payload: { agent: NoticeAgent; turn: number; signal: AbortSignal }): Promise<void> => {
-		if (payload.signal.aborted) return;
-		try {
-			const formatter = clock.formatterFor(zones.get(payload.agent) ?? clock.fallbackZone);
-			const now = clock.now();
-			payload.agent.session.append("user/message", readingNotice((at) => formatter.formatEndedReading(at), (at) => formatter.formatEndedSummary(at), now), { surfaceOp: "append" });
-		} catch (error) {
-			onError(error);
-		}
-	};
-}
-
-/**
- * Register the prepended per-turn clock listeners for the lifetime of `ctx`.
+ * Register the prepended per-turn clock listener for the lifetime of `ctx`.
  * @throws when the configured time zone cannot be resolved.
  */
 export function apply(ctx: Context, config: { timeZone?: string } = {}) {
@@ -160,10 +146,8 @@ export function apply(ctx: Context, config: { timeZone?: string } = {}) {
 		},
 		now: () => Date.now()
 	};
-	const zones: ZoneMemory = new WeakMap();
 	const onError = (error: unknown) => {
 		ctx.logger.warn(`dsh-message-datetime: skipped a reading after a failure: ${String(error)}`);
 	};
-	ctx.on("agent/pre-step", preStepHandler(clock, onError, zones), { prepend: true });
-	ctx.on("agent/turn-stopping", turnStoppingHandler(clock, onError, zones));
+	ctx.on("agent/pre-step", preStepHandler(clock, onError), { prepend: true });
 }

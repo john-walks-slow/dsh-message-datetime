@@ -1,7 +1,7 @@
 {
   "name": "dsh-message-datetime",
-  "version": "0.1.0",
-  "description": "Per-turn clock context for DeepSeek Harness: one-line timestamp reading (weekday, date, time, UTC offset, IANA timezone) at every conversation turn start and a 'Turn ended' reading at close, so the model always knows the current time across turns. dsh-message-datetime：每轮对话开始注入单行时间戳读数（星期/日期/时间/UTC 偏移/IANA 时区），收尾注入 Turn ended 关闭读数——模型始终知道现在几点、上一轮何时结束，日期运算不再靠猜。",
+  "version": "0.1.1",
+  "description": "Per-turn clock and idle-gap context for DeepSeek Harness: one-line timestamp reading (weekday, date, time, UTC offset, IANA timezone) and previous turn end time at every conversation turn start, without breaking UI turn branching. dsh-message-datetime：每轮对话开始注入单行时间戳读数（星期/日期/时间/UTC 偏移/IANA 时区，以及上一轮结束时间和空闲时长）——模型始终知道现在几点、空闲了多久，且完全保护 DSH 原生分支功能。",
   "type": "module",
   "main": "./dist/src/index.js",
   "exports": {

@@ -5,37 +5,34 @@
   <a href="./README.en.md"><strong>English</strong></a>
 </p>
 
-每个对话 turn 开始与结束时，向模型上下文注入**简短时间戳**的 dsh 插件（DeepSeek Harness / cordis plugin）。
+每个对话 turn 开始时，向模型上下文注入**简短时间戳与跨轮空闲间隔**的 dsh 插件（DeepSeek Harness / cordis plugin）。
 
-模型由此始终知道"现在几点、今天星期几、上一轮何时结束"——日期运算、"今天/明天"语义、跨轮空闲间隔感知、yymmdd 路径命名等不再需要询问用户或猜测。
+模型由此始终知道"现在几点、今天星期几、上一轮何时结束、闲置了多久"——日期运算、"今天/明天"语义、跨轮空闲间隔感知、yymmdd 路径命名等不再需要询问用户或猜测。
 
 ## 模型看到什么
 
-每个 turn 的第一个 step，在用户消息之后追加一条单行通知（约 30 token，append-only 不破坏 KV cache）：
+每个 turn 的第一个 step，在用户消息之后追加一条单行通知（约 30~50 token，append-only 不破坏 KV cache）：
 
+**首轮（无上一轮记录）：**
 ```
 Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)
 ```
 
-turn 正常收尾时（`agent/turn-stopping` 边界，最后一条 step/end 之后、turn/end 之前），再追加一条单行关闭读数：
-
+**后续轮次（自动合并上一轮结束时间与闲置时长）：**
 ```
-Turn ended: Tue 2026-09-15 01:41:20 +08:00 (Asia/Shanghai)
+Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai) | Last turn ended: Tue 2026-09-15 00:39:34 +08:00 (idle for 25m)
 ```
 
-下一轮模型由此直接读到上一轮的结束时间。两条通知在 GUI 中均渲染为折叠的 context chip（非用户气泡），折叠行显示去掉秒的摘要，点击展开完整文本。
+通知在 GUI 中渲染为折叠的 context chip（非用户气泡），折叠行显示去掉秒的摘要与闲置时间（例如 `Current time: Tue 2026-09-15 01:04 +08:00 (idle 25m)`），点击展开完整文本。
 
-![dsh-message-datetime in the DSH web UI: Current time and Turn ended context injection chips in a demo turn](assets/screenshot-1.png)
+## 行为规则与设计理念
 
-## 行为规则
-
-- **每 turn 恰两条**：仅 `step === 1` 注入开场读数；turn 内后续 step（工具调用续步）不重复。turn 正常结束时注入关闭读数。
-- **中断轮无关闭读数**：abort / error / 空输入等路径不会派发 `agent/turn-stopping`，被打断的轮次只有 `turn/end` 事件记录原因，无通知。
-- **关闭读数绝不打断收尾**：turn-stopping 是 serial 派发，监听器任何失败只 warn 降级，绝不抛出（抛错会把本轮 `turn/end` reason 污染为 error）。
-- **时区一致**：关闭读数复用本 turn 开场读数选定的时区（无开场读数则回退配置时区），两条读数时区永远一致。
+- **每 turn 恰一条（开场注入）**：仅 `step === 1` 注入；turn 内后续 step（工具调用续步）不重复。
+- **保护 DSH 原生分支（Fork）**：不在 turn 收尾时向会话末尾追加独立节点，避免破坏 Web UI 中 `turn-tail`（操作栏）的“最后一条消息”约束，确保每轮的分支功能畅通无阻。
+- **开箱即用的跨轮感知**：无需模型自己翻阅历史计算耗时，下一轮自动从会话日志解析上一个 `turn/end` 时间戳，并直接计算友好的空闲间隔（如 `<1m`、`25m`、`1h 10m`、`2d 5h`）。
 - **覆盖所有会话**：用户 turn、goal 自动续跑 round、subagent turn 均注入（subagent 无浏览器上下文，最需要时钟）。
 - **时区解析链**：本 turn 浏览器上报时区（`clientTimeZone`，唯一时才采用）→ 配置的 `timeZone` 回退 → Node 进程时区。无效值静默回退，绝不打断 turn。
-- **replay 安全**：两条读数均为 `user/message`（plugin-attributed notice）——开场读数在 step 窗口内，关闭读数在 `turn/end` 之前的轮间位置（dsh-session invariant 对 `user/message` 无位置约束），满足 token-meter replay 约束；机制与官方 `@deepseek-ai/dsh-time-context` 同源。
+- **replay 安全**：读数为 `user/message`（plugin-attributed notice），位于 step 窗口内，满足 token-meter replay 约束；机制与官方 `@deepseek-ai/dsh-time-context` 同源。
 
 ## 配置
 

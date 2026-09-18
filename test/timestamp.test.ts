@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createTimestampFormatter } from "../src/timestamp.js";
+import { createTimestampFormatter, formatIdleDuration } from "../src/timestamp.js";
 
 /** 2026-09-14T17:04:34Z — Tuesday 2026-09-15 01:04:34 in Asia/Shanghai. */
 const TUE_MORNING_UTC = Date.UTC(2026, 8, 14, 17, 4, 34);
@@ -10,6 +10,32 @@ test("reading renders weekday, date, seconds, offset, and zone for Asia/Shanghai
 	assert.equal(formatter.zone, "Asia/Shanghai");
 	assert.equal(formatter.formatReading(TUE_MORNING_UTC), "Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)");
 	assert.equal(formatter.formatSummary(TUE_MORNING_UTC), "Current time: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai)");
+});
+
+test("reading with lastTurnEnd appends previous turn end and idle duration", () => {
+	const formatter = createTimestampFormatter("Asia/Shanghai");
+	// Last turn ended 1 hour and 10 minutes earlier (2026-09-14 23:54:34)
+	const lastTurnEnd = TUE_MORNING_UTC - (70 * 60 * 1000);
+	assert.equal(
+		formatter.formatReading(TUE_MORNING_UTC, lastTurnEnd),
+		"Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai) | Last turn ended: Mon 2026-09-14 23:54:34 +08:00 (idle for 1h 10m)"
+	);
+	assert.equal(
+		formatter.formatSummary(TUE_MORNING_UTC, lastTurnEnd),
+		"Current time: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai) (idle 1h 10m)"
+	);
+});
+
+test("formatIdleDuration covers boundaries accurately", () => {
+	assert.equal(formatIdleDuration(0), "<1m");
+	assert.equal(formatIdleDuration(59_999), "<1m");
+	assert.equal(formatIdleDuration(60_000), "1m");
+	assert.equal(formatIdleDuration(59 * 60_000), "59m");
+	assert.equal(formatIdleDuration(60 * 60_000), "1h");
+	assert.equal(formatIdleDuration(61 * 60_000), "1h 1m");
+	assert.equal(formatIdleDuration(24 * 60 * 60_000), "1d");
+	assert.equal(formatIdleDuration(26 * 60 * 60_000), "1d 2h");
+	assert.equal(formatIdleDuration(-5000), "<1m");
 });
 
 test("turn-end readings reuse the same timestamp shape under the Turn ended label", () => {

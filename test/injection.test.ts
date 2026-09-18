@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { Agent, PreStepDecision } from "@deepseek-ai/dsh-agent";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { UserMessage } from "@deepseek-ai/dsh-llm";
-import { apply, preStepHandler } from "../src/index.js";
+import { apply, findLastTurnEnd, preStepHandler } from "../src/index.js";
 import { createTimestampFormatter } from "../src/timestamp.js";
 import type { Clock } from "../src/index.js";
 
@@ -32,9 +32,15 @@ function browserMessage(zone: string): UserMessage {
 	});
 }
 
-function run(step: number, messages: UserMessage[], signal: AbortSignal, decision: PreStepDecision): Promise<PreStepDecision> {
+function run(
+	step: number,
+	messages: UserMessage[],
+	signal: AbortSignal,
+	decision: PreStepDecision,
+	agent: Agent = {} as Agent
+): Promise<PreStepDecision> {
 	return preStepHandler(clock, (error) => composeErrors.push(error))(
-		{ agent: {} as Agent, messages, turn: 1, step, signal },
+		{ agent, messages, turn: 1, step, signal },
 		async () => decision
 	);
 }
@@ -56,6 +62,41 @@ test("step 1 of a turn appends exactly one reading after the admitted messages",
 	const block = reading.content[0];
 	assert.equal(block.type, "text");
 	assert.equal(block.text, "Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)");
+});
+
+test("step 1 combines previous turn end reading when session has a completed turn", async () => {
+	const lastTurnEndTime = FIXED_NOW - (25 * 60 * 1000); // 25 mins ago: 00:39:34
+	const agent = {
+		session: {
+			snapshotEvents: () => [
+				{ type: "turn/start", time: lastTurnEndTime - 5000 },
+				{ type: "turn/end", time: lastTurnEndTime }
+			]
+		}
+	} as unknown as Agent;
+
+	const userMessage = plainUserMessage();
+	const decision = await run(1, [userMessage], new AbortController().signal, { kind: "enter", messages: [userMessage] }, agent);
+	assert.equal(decision.kind, "enter");
+	if (decision.kind !== "enter") return;
+	const reading = decision.messages[1];
+	assert.equal(reading.source.kind, "plugin");
+	assert.equal(reading.source.form, "notice");
+	assert.equal(reading.source.summary, "Current time: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai) (idle 25m)");
+	const block = reading.content[0];
+	assert.equal(block.type, "text");
+	assert.equal(
+		block.text,
+		"Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai) | Last turn ended: Tue 2026-09-15 00:39:34 +08:00 (idle for 25m)"
+	);
+});
+
+test("findLastTurnEnd handles missing session, empty events, or invalid times gracefully", () => {
+	assert.equal(findLastTurnEnd({} as Agent), undefined);
+	assert.equal(findLastTurnEnd({ session: {} } as unknown as Agent), undefined);
+	assert.equal(findLastTurnEnd({ session: { snapshotEvents: () => [] } } as unknown as Agent), undefined);
+	assert.equal(findLastTurnEnd({ session: { snapshotEvents: () => [{ type: "turn/start" }] } } as unknown as Agent), undefined);
+	assert.equal(findLastTurnEnd({ session: { snapshotEvents: () => [{ type: "turn/end", time: 12345 }] } } as unknown as Agent), 12345);
 });
 
 test("later steps of the same turn get no second reading", async () => {
@@ -125,7 +166,7 @@ test("apply registers one prepended agent/pre-step listener whose handler inject
 		logger: { warn: () => {} }
 	};
 	apply(fakeCtx as never);
-	assert.equal(registrations.length, 2);
+	assert.equal(registrations.length, 1);
 	assert.equal(registrations[0].event, "agent/pre-step");
 	assert.deepEqual(registrations[0].options, { prepend: true });
 	const userMessage = plainUserMessage();

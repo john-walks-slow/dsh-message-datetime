@@ -5,37 +5,34 @@
   <a href="./README.en.md"><strong>English</strong></a>
 </p>
 
-A DeepSeek Harness (cordis) plugin that injects a **one-line timestamp** into the model context at the start and the end of every conversation turn.
+A DeepSeek Harness (cordis) plugin that injects a **concise timestamp and cross-turn idle interval** into the model context at the start of every conversation turn.
 
-The model always knows "what time it is right now, what weekday it is, when the previous turn ended" — date arithmetic, "today/tomorrow" semantics, idle-gap awareness across turns, and yymmdd path naming no longer require asking the user or guessing.
+The model always knows "what time it is right now, what weekday it is, when the previous turn ended, and how long it has been idle" — date arithmetic, "today/tomorrow" semantics, idle-gap awareness across turns, and yymmdd path naming no longer require asking the user or guessing.
 
 ## What the model sees
 
-The first step of every turn appends a one-line notice after the user message (~30 tokens, append-only, KV-cache friendly):
+The first step of every turn appends a one-line notice after the user message (~30-50 tokens, append-only, KV-cache friendly):
 
+**First turn (no previous turn history):**
 ```
 Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai)
 ```
 
-When the turn finishes normally (the `agent/turn-stopping` boundary, after the last step/end and before turn/end), a one-line closing reading is appended:
-
+**Subsequent turns (combining previous turn end and idle duration):**
 ```
-Turn ended: Tue 2026-09-15 01:41:20 +08:00 (Asia/Shanghai)
+Current time: Tue 2026-09-15 01:04:34 +08:00 (Asia/Shanghai) | Last turn ended: Tue 2026-09-15 00:39:34 +08:00 (idle for 25m)
 ```
 
-The next turn therefore reads the previous turn's end time directly. Both notices render in the GUI as collapsed context chips (not user bubbles); the collapsed row shows a seconds-free summary and clicking expands the full text.
+The notice renders in the GUI as a collapsed context chip (not a user bubble); the collapsed row shows a seconds-free summary and idle time (e.g. `Current time: Tue 2026-09-15 01:04 +08:00 (idle 25m)`), and clicking expands the full text.
 
-![dsh-message-datetime in the DSH web UI: Current time and Turn ended context injection chips in a demo turn](assets/screenshot-1.png)
+## Behavior rules & design philosophy
 
-## Behavior rules
-
-- **Exactly two readings per turn**: the opening reading is injected only at `step === 1`; later steps within the turn (tool-call continuations) do not repeat it. The closing reading is injected when the turn ends normally.
-- **Interrupted turns get no closing reading**: abort / error / empty-input paths never dispatch `agent/turn-stopping`; the interrupted turn only records its reason on the `turn/end` event, with no notice.
-- **The closing reading never breaks turn teardown**: turn-stopping dispatch is serial; any listener failure degrades to a warn and never throws (throwing would pollute the turn's `turn/end` reason as error).
-- **Consistent timezone**: the closing reading reuses the timezone chosen for this turn's opening reading (falling back to the configured timezone if absent) — the two readings always agree.
+- **Exactly one injection per turn (at turn start)**: injected only at `step === 1`; later steps within the turn (tool-call continuations) do not repeat it.
+- **Preserves native DSH turn branching (fork)**: does not append trailing nodes after the assistant response at turn end, avoiding violations of the Web UI `turn-tail` boundary check, ensuring seamless session branching from any completed turn.
+- **Ready-to-use cross-turn awareness**: instead of forcing the model to calculate time deltas across chat history, the plugin parses the previous `turn/end` event from session history and computes human-friendly idle intervals (`<1m`, `25m`, `1h 10m`, `2d 5h`).
 - **Covers every session**: user turns, goal auto-continuation rounds, and subagent turns all get injections (subagents have no browser context and need the clock most).
 - **Timezone resolution chain**: the browser-reported timezone for this turn (`clientTimeZone`, adopted only when unique) → the configured `timeZone` fallback → the Node process timezone. Invalid values fall back silently and never interrupt the turn.
-- **Replay-safe**: both readings are `user/message` (plugin-attributed notices) — the opening one inside the step window, the closing one in the inter-turn position before `turn/end` (the dsh-session invariant places no position constraint on `user/message`), satisfying the token-meter replay constraint; the mechanism follows the official `@deepseek-ai/dsh-time-context`.
+- **Replay-safe**: reading is `user/message` (plugin-attributed notice) inside the step window, satisfying the token-meter replay constraint; the mechanism follows the official `@deepseek-ai/dsh-time-context`.
 
 ## Configuration
 
