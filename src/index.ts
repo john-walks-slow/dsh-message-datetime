@@ -19,11 +19,20 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent, PreStepDecision } from "@deepseek-ai/dsh-agent";
 import { boundContextSummary, createUserMessage } from "@deepseek-ai/dsh-llm";
-import type { UserMessage } from "@deepseek-ai/dsh-llm";
+import type { ContextFormed, UserMessage } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { selectRequestTimeZone } from "./request-zone.js";
 import { createTimestampFormatter } from "./timestamp.js";
 import type { TimestampFormatter } from "./timestamp.js";
+
+/** Producer-owned source kind for this plugin's clock-reading notices. */
+declare module "@deepseek-ai/dsh-llm" {
+	interface MessageSourceMap {
+		"dsh-message-datetime": {
+			kind: "dsh-message-datetime";
+		} & ContextFormed;
+	}
+}
 
 /** Cordis plugin name used by loader diagnostics and message attribution. */
 export const name = "dsh-message-datetime";
@@ -47,8 +56,7 @@ function readingNotice(formatReading: (now: number) => string, formatSummary: (n
 	return createUserMessage({
 		content: [{ type: "text", text: formatReading(now) }],
 		source: {
-			kind: "plugin",
-			plugin: name,
+			kind: name,
 			form: "notice",
 			summary: boundContextSummary(formatSummary(now))
 		}

@@ -54,8 +54,7 @@ test("step 1 of a turn appends exactly one reading after the admitted messages",
 	assert.equal(decision.messages[0], userMessage);
 	const reading = decision.messages[1];
 	assert.equal(reading.role, "user");
-	assert.equal(reading.source.kind, "plugin");
-	assert.equal(reading.source.plugin, "dsh-message-datetime");
+	assert.equal(reading.source.kind, "dsh-message-datetime");
 	assert.equal(reading.source.form, "notice");
 	assert.equal(reading.source.summary, "Current time: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai)");
 	assert.equal(reading.content.length, 1);
@@ -80,7 +79,7 @@ test("step 1 combines previous turn end reading when session has a completed tur
 	assert.equal(decision.kind, "enter");
 	if (decision.kind !== "enter") return;
 	const reading = decision.messages[1];
-	assert.equal(reading.source.kind, "plugin");
+	assert.equal(reading.source.kind, "dsh-message-datetime");
 	assert.equal(reading.source.form, "notice");
 	assert.equal(reading.source.summary, "Current time: Tue 2026-09-15 01:04 +08:00 (Asia/Shanghai) (idle 25m)");
 	const block = reading.content[0];
